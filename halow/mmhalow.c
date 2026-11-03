@@ -7,11 +7,17 @@
 #include "mmhalow.h"
 #include "esp_log.h"
 #include "mmlog.h"
+#include "mmutils.h"
 #include <string.h>
 
 static const char *TAG = "Morse Micro HaLow NetIF";
 
 static esp_netif_t *halow_netif = NULL;
+
+/* VIFs brought up through this API, used to address transmitted frames (see halow_tx_vif()). */
+static volatile bool halow_sta_active;
+static volatile bool halow_ap_active;
+static volatile bool halow_relay_active;
 
 static void mmhalow_link_state(enum mmwlan_link_state link_state, void *arg)
 {
@@ -55,14 +61,52 @@ static void halow_rx(struct mmpkt *rxpkt, void *arg)
     }
 }
 
+/*
+ * mmwlan_tx_pkt() only infers the VIF for MMWLAN_VIF_UNSPECIFIED when exactly one VIF exists.
+ * With both a STA and an AP VIF up (a relay repeater, or STA + AP) it fails with "Unable to infer
+ * VIF ID" and drops the frame. Name the VIF of the role this netif was brought up for. If both
+ * were started without relay, the netif follows the STA uplink.
+ *
+ * With relay enabled, umac_relay_update_tx_metadata() runs before that inference and rewrites
+ * the VIF of every frame without an RA: to the AP VIF when the destination is an associated STA
+ * or is behind a repeater (relay forwarding table), otherwise to the STA VIF. On a repeater or
+ * relay STA that is the right routing whatever is passed here.
+ */
+static enum mmwlan_vif halow_tx_vif(void)
+{
+    if (halow_sta_active)
+    {
+        return MMWLAN_VIF_STA;
+    }
+    if (halow_ap_active)
+    {
+        return MMWLAN_VIF_AP;
+    }
+    return MMWLAN_VIF_UNSPECIFIED;
+}
+
 static esp_err_t halow_transmit(void *h, void *buffer, size_t len)
 {
     struct mmpkt *pkt;
     struct mmpktview *pktview;
     enum mmwlan_status status;
-    struct mmwlan_tx_metadata metadata = {
-        .tid = 0,
-    };
+    struct mmwlan_tx_metadata metadata = MMWLAN_TX_METADATA_INIT;
+    uint8_t group_ra[MMWLAN_MAC_ADDR_LEN];
+
+    metadata.vif = halow_tx_vif();
+
+    /* On the relay root, umac_relay_update_tx_metadata() would move group-addressed frames
+     * (ARP requests, DHCP, mDNS...) to the STA VIF, which the root does not have, so they are
+     * dropped. An RA makes it leave the frame alone; the AP datapath maps a group RA to its
+     * broadcast station, exactly as for a non-relay AP. */
+    if (halow_relay_active &&
+        metadata.vif == MMWLAN_VIF_AP &&
+        len >= MMWLAN_MAC_ADDR_LEN &&
+        mm_mac_addr_is_multicast((const uint8_t *)buffer))
+    {
+        memcpy(group_ra, buffer, sizeof(group_ra));
+        metadata.ra = group_ra;
+    }
 
     status = mmwlan_tx_wait_until_ready(1000);
     if (status != MMWLAN_SUCCESS)
@@ -244,10 +288,27 @@ esp_err_t mmhalow_scan(struct mmhalow_scan_args *args)
     return mmwlan_scan_request(&scan_req);
 }
 
+/*
+ * When passphrase_len is 0, morselib's STA path stores strlen(ssid) as the passphrase length
+ * instead of the passphrase's (umac_connection.c), so SAE fails unless both happen to be the
+ * same length. A repeater's relay AP also inherits that length. Fill it in from the
+ * NUL-terminated passphrase. The AP path computes the length correctly.
+ */
+static void sta_args_fix_passphrase_len(struct mmwlan_sta_args *args)
+{
+    if (args->passphrase_len == 0)
+    {
+        /* An unterminated passphrase gives a length above MMWLAN_PASSPHRASE_MAXLEN, which
+         * morselib still rejects. */
+        args->passphrase_len = strnlen(args->passphrase, sizeof(args->passphrase));
+    }
+}
+
 static void set_config_sta(struct mmwlan_sta_args *conf)
 {
     mmhalow_netif_driver_t *morse_drv = esp_netif_get_io_driver(halow_netif);
     memcpy(&morse_drv->sta_args, conf, sizeof(*conf));
+    sta_args_fix_passphrase_len(&morse_drv->sta_args);
 }
 
 static void set_config_ap(struct mmwlan_ap_args *conf)
@@ -313,11 +374,18 @@ esp_err_t mmhalow_connect(mmwlan_sta_status_cb_t cb)
 
     ESP_LOGI(TAG, "Attempting to connect to: %s", morse_drv->sta_args.ssid);
 
-    return mmwlan_sta_enable(&morse_drv->sta_args, cb);
+    halow_sta_active = true;
+    enum mmwlan_status status = mmwlan_sta_enable(&morse_drv->sta_args, cb);
+    if (status != MMWLAN_SUCCESS)
+    {
+        halow_sta_active = false;
+    }
+    return status;
 }
 
 esp_err_t mmhalow_disconnect()
 {
+    halow_sta_active = false;
     return mmwlan_sta_disable();
 }
 
@@ -328,7 +396,13 @@ enum mmwlan_status mmhalow_status()
 
 void mmhalow_wifi_start(){
     mmhalow_netif_driver_t *morse_drv = esp_netif_get_io_driver(halow_netif);
-    mmwlan_ap_enable(&morse_drv->ap_args);
+    halow_ap_active = true;
+    enum mmwlan_status status = mmwlan_ap_enable(&morse_drv->ap_args);
+    if (status != MMWLAN_SUCCESS)
+    {
+        ESP_LOGE(TAG, "mmwlan_ap_enable failed - %d", status);
+        halow_ap_active = false;
+    }
 }
 
 esp_netif_t *mmhalow_get_netif(void)
@@ -410,6 +484,17 @@ esp_err_t mmhalow_relay_enable(const struct mmwlan_relay_args *args)
 
     bool is_root = (args->root_ap_args != NULL);
 
+    /* Work on copies so the STA passphrase length can be fixed up without touching the
+     * caller's structures; morselib copies them again during mmwlan_relay_enable(). */
+    struct mmwlan_relay_args relay_args = *args;
+    struct mmwlan_sta_args relay_sta_args;
+    if (args->relay_sta_args != NULL)
+    {
+        relay_sta_args = *args->relay_sta_args;
+        sta_args_fix_passphrase_len(&relay_sta_args);
+        relay_args.relay_sta_args = &relay_sta_args;
+    }
+
     /* The VIF state callbacks report everything the STA link callback does (it is invoked
      * alongside them) plus the relay STA losing or regaining its path to the root. Detach the
      * link callback so the STA link is not reported twice. */
@@ -420,10 +505,27 @@ esp_err_t mmhalow_relay_enable(const struct mmwlan_relay_args *args)
 
     ESP_LOGI(TAG, "Enabling S1G relay (%s)", is_root ? "root" : "non-root");
 
-    enum mmwlan_status status = mmwlan_relay_enable(args);
+    /* Set before enabling: the root's link (and lwip traffic) can come up before it returns.
+     * mmwlan_relay_enable() refuses to run alongside STA or AP mode, so restore on failure. */
+    bool was_sta_active = halow_sta_active;
+    bool was_ap_active = halow_ap_active;
+    halow_relay_active = true;
+    if (is_root)
+    {
+        halow_ap_active = true;
+    }
+    else
+    {
+        halow_sta_active = true;
+    }
+
+    enum mmwlan_status status = mmwlan_relay_enable(&relay_args);
     if (status != MMWLAN_SUCCESS)
     {
         ESP_LOGE(TAG, "mmwlan_relay_enable failed - %d", status);
+        halow_relay_active = false;
+        halow_sta_active = was_sta_active;
+        halow_ap_active = was_ap_active;
         mmhalow_relay_detach_link();
         return mmhalow_err_from_status(status);
     }
@@ -444,6 +546,9 @@ esp_err_t mmhalow_relay_disable(void)
         ESP_LOGE(TAG, "mmwlan_relay_disable failed - %d", status);
     }
 
+    halow_relay_active = false;
+    halow_sta_active = false;
+    halow_ap_active = false;
     mmhalow_relay_detach_link();
     return mmhalow_err_from_status(status);
 #else

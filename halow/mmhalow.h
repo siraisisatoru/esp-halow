@@ -109,7 +109,8 @@ esp_netif_t *mmhalow_get_netif(void);
  * - root: @c root_ap_args set. The netif link is up while the root AP is up.
  * - repeater / relay STA: @c relay_sta_args set, plus @c relay_ap_args for a repeater. The netif
  *   link follows the relay STA, including the relay network reporting that the path to the root
- *   was lost or recovered. @c sta_status_cb is passed through unchanged.
+ *   was lost or recovered. @c sta_status_cb is passed through unchanged, and a zero
+ *   @c relay_sta_args->passphrase_len is filled in from the passphrase (on a copy).
  *
  * STA and AP mode (mmhalow_connect(), mmhalow_wifi_start()) must not be active. The configuration
  * stored with mmhalow_set_config() is not used.

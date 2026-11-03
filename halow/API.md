@@ -117,6 +117,8 @@ Stores the network configuration for the specified interface. Must be called bef
 `interface` - `WIFI_IF_STA` or `WIFI_IF_AP`.  
 `conf` - Pointer to a populated `mmhalow_wifi_config_t`.
 
+If `conf->sta.passphrase_len` is 0, the stored copy gets the length of the NUL-terminated `passphrase`. morselib would otherwise use the SSID length (MorseMicro/esp-halow#11).
+
 **Returns:**  
 `ESP_OK` on success.  
 `ESP_ERR_NOT_SUPPORTED` for `WIFI_IF_NAN` or any unsupported interface.
@@ -260,6 +262,8 @@ Brings the interface up as a node of an S1G relay network. Wraps `mmwlan_relay_e
 | Relay STA | `relay_sta_args` | the relay STA is connected and its parent has a path to the root |
 
 - `sta_status_cb` (non-root roles) is passed to morselib unchanged.
+- A `relay_sta_args.passphrase_len` of 0 is filled in from the passphrase, as in `mmhalow_set_config()`. The caller's structure is not modified.
+- On the root, group-addressed frames (ARP, DHCP, mDNS) are sent on the root AP. morselib's relay routing would otherwise move them to the root's non-existent STA interface.
 - A repeater's relay AP copies the SSID, security and passphrase of the relay STA. It uses the channel of the network that the STA joins. If `relay_ap_args.bssid` is zero, the BSSID is the device MAC address with the locally administered bit flipped.
 - STA mode and AP mode (`mmhalow_connect()`, `mmhalow_wifi_start()`) must not be active. The configuration stored by `mmhalow_set_config()` is not used.
 - Relay status changes (role, depth) can be observed with `mmwlan_register_relay_status_cb()` and `mmwlan_relay_get_status()`. Repeaters can be added or removed at runtime with `mmwlan_relay_ap_enable()` / `mmwlan_relay_ap_disable()`.
