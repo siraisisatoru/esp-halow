@@ -284,7 +284,7 @@ Another `esp_err_t` on other failures. The `mmwlan_status` is logged.
 esp_err_t mmhalow_relay_disable(void);
 ```
 
-Leaves the relay network and tears down the relay STA and AP interfaces. Wraps `mmwlan_relay_disable()`. The netif link goes down, and STA link reporting returns to normal.
+Leaves the relay network and tears down the relay STA and AP interfaces. Wraps `mmwlan_relay_disable()`. The netif link goes down, and STA link reporting returns to normal. If relay mode was not enabled with `mmhalow_relay_enable()` it does nothing and returns `ESP_OK`, so a STA or AP started with `mmhalow_connect()` or `mmhalow_wifi_start()` is left running.
 
 **Returns:**  
 `ESP_OK` on success.  

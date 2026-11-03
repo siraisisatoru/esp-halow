@@ -482,6 +482,15 @@ esp_err_t mmhalow_relay_enable(const struct mmwlan_relay_args *args)
     }
     assert(halow_netif);
 
+    /* morselib rejects a second enable, or one made after STA or AP mode was started, but its
+     * failure path calls mmwlan_relay_disable(), which tears down whatever AP is running. Refuse
+     * here instead, before the link callbacks or the role flags are touched. */
+    if (halow_relay_active || halow_sta_active || halow_ap_active)
+    {
+        ESP_LOGE(TAG, "Relay must be enabled before STA/AP and only once");
+        return ESP_ERR_INVALID_STATE;
+    }
+
     bool is_root = (args->root_ap_args != NULL);
 
     /* Work on copies so the STA passphrase length can be fixed up without touching the
@@ -506,9 +515,7 @@ esp_err_t mmhalow_relay_enable(const struct mmwlan_relay_args *args)
     ESP_LOGI(TAG, "Enabling S1G relay (%s)", is_root ? "root" : "non-root");
 
     /* Set before enabling: the root's link (and lwip traffic) can come up before it returns.
-     * mmwlan_relay_enable() refuses to run alongside STA or AP mode, so restore on failure. */
-    bool was_sta_active = halow_sta_active;
-    bool was_ap_active = halow_ap_active;
+     * Neither STA nor AP mode was active (checked above), so clear them again on failure. */
     halow_relay_active = true;
     if (is_root)
     {
@@ -524,8 +531,8 @@ esp_err_t mmhalow_relay_enable(const struct mmwlan_relay_args *args)
     {
         ESP_LOGE(TAG, "mmwlan_relay_enable failed - %d", status);
         halow_relay_active = false;
-        halow_sta_active = was_sta_active;
-        halow_ap_active = was_ap_active;
+        halow_sta_active = false;
+        halow_ap_active = false;
         mmhalow_relay_detach_link();
         return mmhalow_err_from_status(status);
     }
@@ -540,6 +547,13 @@ esp_err_t mmhalow_relay_enable(const struct mmwlan_relay_args *args)
 esp_err_t mmhalow_relay_disable(void)
 {
 #if CONFIG_HALOW_RELAY_MODE
+    /* mmwlan_relay_disable() stops any running AP even when relay mode is not enabled, so leave
+     * a plain STA or AP from mmhalow_connect() / mmhalow_wifi_start() alone. */
+    if (!halow_relay_active)
+    {
+        return ESP_OK;
+    }
+
     enum mmwlan_status status = mmwlan_relay_disable();
     if (status != MMWLAN_SUCCESS)
     {

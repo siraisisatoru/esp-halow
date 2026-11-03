@@ -122,7 +122,8 @@ esp_netif_t *mmhalow_get_netif(void);
 esp_err_t mmhalow_relay_enable(const struct mmwlan_relay_args *args);
 
 /**
- * Disable S1G relay mode. Wraps mmwlan_relay_disable().
+ * Disable S1G relay mode. Wraps mmwlan_relay_disable(). Does nothing if relay mode was not
+ * enabled with mmhalow_relay_enable(), so a STA or AP started outside relay mode is left running.
  *
  * @return ESP_OK on success, ESP_ERR_NOT_SUPPORTED if CONFIG_HALOW_RELAY_MODE is disabled, or
  *         another error code on failure.
