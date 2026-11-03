@@ -11,13 +11,18 @@ menu "Wi-Fi HaLow Connection Manager"
     config WIFI_HALOW
         bool "Enable Morse Micro Wi-Fi HaLow support"
         default y
-        # Needed by the supplicant crypto glue (components/shims/crypto_mbedtls_mm.c): AES/CMAC
-        # for the key hierarchy and BIP, ECP + ECDH on P-256 for SAE (WPA3) and OWE.
+        # Needed by the supplicant crypto glue (components/shims/crypto_mbedtls_mm.c), which
+        # fails the build with #error if any is missing: AES/CMAC for the key hierarchy and BIP,
+        # ECP + ECDH on P-256 for SAE (WPA3) and OWE, SHA-1/SHA-2 for the PRF/KDF, PBKDF2 and HMAC.
         select MBEDTLS_AES_C
         select MBEDTLS_CMAC_C
         select MBEDTLS_ECP_C
         select MBEDTLS_ECP_DP_SECP256R1_ENABLED
         select MBEDTLS_ECDH_C
+        select MBEDTLS_SHA1_C
+        select MBEDTLS_SHA256_C
+        select MBEDTLS_SHA384_C
+        select MBEDTLS_SHA512_C
 
     config HALOW_COUNTRY_CODE
         string "Country code to use for Wi-Fi HaLow"
