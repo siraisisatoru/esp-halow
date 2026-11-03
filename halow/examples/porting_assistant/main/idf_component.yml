@@ -5,5 +5,5 @@
 ## IDF Component Manager Manifest File
 dependencies:
   morsemicro/halow:
-    version: ^2.11.2-esp32-2
+    version: ^2.14.3-esp32-1
     override_path: '../../../'
