@@ -77,8 +77,14 @@ events, and every 30 s its relay role and IPv4 state:
     I (...) relay_root: Relay role: root, depth: 0
     I (...) relay_root: STA xx:xx:xx:xx:xx:xx (AID 1) authorized
 
-From a node behind the repeater, `ping 192.168.12.1` or send UDP to port 12345 (the
-`sta_connect` example sends there by default). The root echoes each datagram back.
+From a node behind the repeater, `ping 192.168.12.1` or send UDP to port 12345. The root
+echoes each datagram back.
+
+The `sta_connect` example targets `192.168.12.1:12345`, but it does not work here unchanged:
+it gets its address over DHCP, which this network does not provide, and it does not pin a
+BSSID. To use it as the station, give it a static address in `192.168.12.0/24` (stop the
+DHCP client and call `esp_netif_set_ip_info()`, as this example does) and set
+`conf.sta.bssid` (`mmwlan_sta_args.bssid`) to the repeater's relay AP BSSID.
 
 ## Configuration
 Options under `HaLow relay_root Example Configuration` (`idf.py menuconfig`):
