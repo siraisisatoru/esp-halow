@@ -1,0 +1,9 @@
+# Copyright 2026 siraisisatoru
+#
+# SPDX-License-Identifier: Apache-2.0
+
+## IDF Component Manager Manifest File
+dependencies:
+  morsemicro/halow:
+    version: ^2.11.2-esp32-2
+    override_path: '../../../'

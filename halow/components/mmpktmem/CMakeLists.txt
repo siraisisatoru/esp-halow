@@ -11,6 +11,10 @@ set(src
 
 add_compile_definitions(MMPKTMEM_TX_POOL_N_BLOCKS=CONFIG_MMPKTMEM_TX_POOL_N_BLOCKS)
 add_compile_definitions(MMPKTMEM_RX_POOL_N_BLOCKS=CONFIG_MMPKTMEM_RX_POOL_N_BLOCKS)
+# mmpktmem_heap.c defaults this to 0 (no reserved pool), so only pass it when one is configured.
+if(CONFIG_MMPKTMEM_TX_MGMT_POOL_N_BLOCKS)
+    add_compile_definitions(MMPKTMEM_TX_MGMT_POOL_N_BLOCKS=${CONFIG_MMPKTMEM_TX_MGMT_POOL_N_BLOCKS})
+endif()
 
 add_library(mmpktmem STATIC ${src})
 target_include_directories(mmpktmem PUBLIC ${inc})

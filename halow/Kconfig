@@ -40,4 +40,18 @@ menu "Wi-Fi HaLow Connection Manager"
             is disabled by default due to the extra functionality increasing the
             flash and ram requirements by a non inconsequential amount.
 
+    config HALOW_RELAY_MODE
+        bool "Enable HaLow S1G relay mode support"
+        default n
+        depends on HALOW_AP_MODE
+        help
+            Builds morselib with S1G Relay support (ENABLE_MMWLAN_RELAY) so that
+            mmhalow_relay_enable() can bring the device up as the root AP, a
+            repeater (relay STA + relay AP) or a relay STA of an S1G relay network.
+            Requires AP mode.
+
+            ALPHA NOTICE: the S1G Relay API is an alpha API that is under
+            development. It is not intended for production use. It may be removed
+            in a future release and/or breaking changes may be introduced.
+
 endmenu

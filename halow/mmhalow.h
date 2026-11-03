@@ -90,3 +90,40 @@ void mmhalow_print_version_info(void);
  * Start an AP interface
  */
 void mmhalow_wifi_start();
+
+/**
+ * Get the esp_netif that carries HaLow traffic (created by mmhalow_init()).
+ *
+ * The interface is created as a DHCP client. A node that should use a static address, such as
+ * an S1G relay root, can stop the DHCP client and set its address through this handle.
+ */
+esp_netif_t *mmhalow_get_netif(void);
+
+/**
+ * Enable S1G relay mode. Wraps mmwlan_relay_enable().
+ *
+ * @warning ALPHA NOTICE: The S1G Relay API is an alpha API that is under development; it is not
+ *          intended for production use and breaking changes may be introduced.
+ *
+ * Exactly one role is selected by @p args (see struct mmwlan_relay_args in mmwlan.h):
+ * - root: @c root_ap_args set. The netif link is up while the root AP is up.
+ * - repeater / relay STA: @c relay_sta_args set, plus @c relay_ap_args for a repeater. The netif
+ *   link follows the relay STA, including the relay network reporting that the path to the root
+ *   was lost or recovered. @c sta_status_cb is passed through unchanged.
+ *
+ * STA and AP mode (mmhalow_connect(), mmhalow_wifi_start()) must not be active. The configuration
+ * stored with mmhalow_set_config() is not used.
+ *
+ * @return ESP_OK on success, ESP_ERR_NOT_SUPPORTED if CONFIG_HALOW_RELAY_MODE is disabled,
+ *         ESP_ERR_INVALID_ARG for invalid arguments, ESP_ERR_INVALID_STATE if relay, STA or AP
+ *         mode is already active, or another error code on failure.
+ */
+esp_err_t mmhalow_relay_enable(const struct mmwlan_relay_args *args);
+
+/**
+ * Disable S1G relay mode. Wraps mmwlan_relay_disable().
+ *
+ * @return ESP_OK on success, ESP_ERR_NOT_SUPPORTED if CONFIG_HALOW_RELAY_MODE is disabled, or
+ *         another error code on failure.
+ */
+esp_err_t mmhalow_relay_disable(void);

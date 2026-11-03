@@ -13,4 +13,14 @@ menu "Morse Micro Packet Memory Configuration"
         default 32
         help
             Number of blocks allocated for the receive queue
+
+    config MMPKTMEM_TX_MGMT_POOL_N_BLOCKS
+        int "TX management frame reserved blocks"
+        default 4 if HALOW_RELAY_MODE
+        default 0
+        help
+            Number of transmit blocks reserved for management frames, so that beacons
+            and frames to associating stations can still be allocated when the data
+            pool is exhausted. 0 disables the reserved pool. The SDK's relay_mode
+            application uses 4.
 endmenu

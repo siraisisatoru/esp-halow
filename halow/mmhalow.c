@@ -330,3 +330,123 @@ void mmhalow_wifi_start(){
     mmhalow_netif_driver_t *morse_drv = esp_netif_get_io_driver(halow_netif);
     mmwlan_ap_enable(&morse_drv->ap_args);
 }
+
+esp_netif_t *mmhalow_get_netif(void)
+{
+    return halow_netif;
+}
+
+#if CONFIG_HALOW_RELAY_MODE
+static esp_err_t mmhalow_err_from_status(enum mmwlan_status status)
+{
+    switch (status)
+    {
+        case MMWLAN_SUCCESS:
+        case MMWLAN_SHUTDOWN_BLOCKED:
+            return ESP_OK;
+        case MMWLAN_INVALID_ARGUMENT:
+            return ESP_ERR_INVALID_ARG;
+        case MMWLAN_NO_MEM:
+            return ESP_ERR_NO_MEM;
+        case MMWLAN_TIMED_OUT:
+            return ESP_ERR_TIMEOUT;
+        case MMWLAN_NOT_FOUND:
+            return ESP_ERR_NOT_FOUND;
+        case MMWLAN_NOT_SUPPORTED:
+            return ESP_ERR_NOT_SUPPORTED;
+        case MMWLAN_UNAVAILABLE:
+        case MMWLAN_NOT_RUNNING:
+        case MMWLAN_NOT_INITIALIZED:
+        case MMWLAN_CHANNEL_LIST_NOT_SET:
+            return ESP_ERR_INVALID_STATE;
+        default:
+            return ESP_FAIL;
+    }
+}
+
+/* While relay mode is enabled the netif link follows one VIF: the root AP on the root node, the
+ * relay STA on any other node. A repeater's relay AP is managed by morselib and does not affect
+ * the link of this node's own host. */
+static enum mmwlan_vif relay_link_vif = MMWLAN_VIF_UNSPECIFIED;
+static bool relay_link_up;
+
+static void mmhalow_relay_vif_state(const struct mmwlan_vif_state *state, void *arg)
+{
+    bool up = (state->link_state == MMWLAN_LINK_UP);
+
+    /* A relay STA reports link up both on association and when its parent advertises a path to
+     * the root, so only act on changes. */
+    if (state->vif != relay_link_vif || up == relay_link_up)
+    {
+        return;
+    }
+    relay_link_up = up;
+    mmhalow_link_state(state->link_state, arg);
+}
+
+/* Hand the netif link back to the STA link callback that mmhalow_init() registered. */
+static void mmhalow_relay_detach_link(void)
+{
+    mmwlan_register_vif_state_cb(MMWLAN_VIF_UNSPECIFIED, NULL, NULL);
+    if (relay_link_up)
+    {
+        /* Relay teardown normally reports this; make sure the netif agrees if it did not. */
+        mmhalow_link_state(MMWLAN_LINK_DOWN, halow_netif);
+    }
+    relay_link_vif = MMWLAN_VIF_UNSPECIFIED;
+    relay_link_up = false;
+    mmwlan_register_link_state_cb(mmhalow_link_state, halow_netif);
+}
+#endif /* CONFIG_HALOW_RELAY_MODE */
+
+esp_err_t mmhalow_relay_enable(const struct mmwlan_relay_args *args)
+{
+#if CONFIG_HALOW_RELAY_MODE
+    if (args == NULL)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    assert(halow_netif);
+
+    bool is_root = (args->root_ap_args != NULL);
+
+    /* The VIF state callbacks report everything the STA link callback does (it is invoked
+     * alongside them) plus the relay STA losing or regaining its path to the root. Detach the
+     * link callback so the STA link is not reported twice. */
+    mmwlan_register_link_state_cb(NULL, NULL);
+    relay_link_vif = is_root ? MMWLAN_VIF_AP : MMWLAN_VIF_STA;
+    relay_link_up = false;
+    mmwlan_register_vif_state_cb(MMWLAN_VIF_UNSPECIFIED, mmhalow_relay_vif_state, halow_netif);
+
+    ESP_LOGI(TAG, "Enabling S1G relay (%s)", is_root ? "root" : "non-root");
+
+    enum mmwlan_status status = mmwlan_relay_enable(args);
+    if (status != MMWLAN_SUCCESS)
+    {
+        ESP_LOGE(TAG, "mmwlan_relay_enable failed - %d", status);
+        mmhalow_relay_detach_link();
+        return mmhalow_err_from_status(status);
+    }
+    return ESP_OK;
+#else
+    ESP_UNUSED(args);
+    ESP_LOGE(TAG, "S1G relay support is disabled (CONFIG_HALOW_RELAY_MODE)");
+    return ESP_ERR_NOT_SUPPORTED;
+#endif /* CONFIG_HALOW_RELAY_MODE */
+}
+
+esp_err_t mmhalow_relay_disable(void)
+{
+#if CONFIG_HALOW_RELAY_MODE
+    enum mmwlan_status status = mmwlan_relay_disable();
+    if (status != MMWLAN_SUCCESS)
+    {
+        ESP_LOGE(TAG, "mmwlan_relay_disable failed - %d", status);
+    }
+
+    mmhalow_relay_detach_link();
+    return mmhalow_err_from_status(status);
+#else
+    return ESP_ERR_NOT_SUPPORTED;
+#endif /* CONFIG_HALOW_RELAY_MODE */
+}

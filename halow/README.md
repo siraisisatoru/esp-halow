@@ -81,6 +81,8 @@ Run `idf.py menuconfig` and navigate to **Wi-Fi HaLow Connection Manager**:
 | `WIFI_HALOW` | `y` | Enable HaLow support |
 | `HALOW_COUNTRY_CODE` | `??` | Two-character country code (e.g. `US`, `AU`, `JP`) |
 | `HALOW_PS_MODE` | `n` | Enable power-save mode (requires BUSY/WAKE pins) |
+| `HALOW_AP_MODE` | `n` | Build AP-mode support (hostapd, AP datapath) |
+| `HALOW_RELAY_MODE` | `n` | Build S1G relay support (alpha); requires `HALOW_AP_MODE` |
 
 This is also where you would define your [hardware configuration values](#hardware), if you're not using a predefinied [config](./configs/README.md).
 
@@ -123,6 +125,39 @@ mmhalow_set_config(WIFI_IF_AP, &cfg);
 mmhalow_wifi_start();
 ```
 
+### 5. S1G relay root usage
+
+With `CONFIG_HALOW_AP_MODE=y` and `CONFIG_HALOW_RELAY_MODE=y`, the device can be the root of an
+mm-iot-sdk S1G relay network. Repeaters (for example an MM6108-EKH05 running the SDK's
+`relay_mode` application) and stations join it with the same SSID and passphrase. The relay API
+is alpha; see [`mmhalow_relay_enable`](./API.md#mmhalow_relay_enable).
+
+```c
+#include "mmhalow.h"
+
+ESP_ERROR_CHECK(mmhalow_init(NULL));
+
+/* The root has no DHCP server: give it a static address. */
+esp_netif_t *netif = mmhalow_get_netif();
+esp_netif_dhcpc_stop(netif);
+esp_netif_ip_info_t ip = { 0 };
+ip.ip.addr = esp_ip4addr_aton("192.168.12.1");
+ip.netmask.addr = esp_ip4addr_aton("255.255.255.0");
+esp_netif_set_ip_info(netif, &ip);
+
+struct mmwlan_ap_args ap = MMWLAN_AP_ARGS_INIT;
+strlcpy((char *)ap.ssid, "MorseMicro", sizeof(ap.ssid));
+ap.ssid_len = strlen("MorseMicro");
+strlcpy(ap.passphrase, "12345678", sizeof(ap.passphrase));
+ap.security_type = MMWLAN_SAE;
+ap.s1g_chan_num = 37;   /* AU 2 MHz, 920.5 MHz */
+ap.op_class = 51;
+
+struct mmwlan_relay_args relay = MMWLAN_RELAY_ARGS_INIT;
+relay.root_ap_args = &ap;
+ESP_ERROR_CHECK(mmhalow_relay_enable(&relay));
+```
+
 ---
 
 ## Examples
@@ -134,6 +169,7 @@ All examples are under `examples/`. Each is a self-contained ESP-IDF project.
 | `sta_connect` | Connect to an AP in STA mode, send a UDP packet |
 | `scan` | Scan for HaLow APs and display results |
 | `softap` | Start a HaLow access point |
+| `relay_root` | Start the root AP of an S1G relay network (alpha) |
 | `iperf` | Interactive throughput testing via console REPL |
 | `dual_if` | Run STA and AP interfaces simultaneously |
 | `sta_reboot` | Reconnect gracefully after a reboot |

@@ -220,6 +220,74 @@ Enables AP mode using the configuration previously set with `mmhalow_set_config(
 
 ---
 
+### `mmhalow_get_netif`
+
+```c
+esp_netif_t *mmhalow_get_netif(void);
+```
+
+Returns the `esp_netif` that carries HaLow traffic, created by `mmhalow_init()` (`NULL` before then).
+
+The interface is created as a DHCP client (`ESP_NETIF_DEFAULT_WIFI_STA()`). Nodes that need a static address, such as an S1G relay root, which has no DHCP server, can stop the client and set the address:
+
+```c
+esp_netif_t *netif = mmhalow_get_netif();
+esp_netif_dhcpc_stop(netif);
+esp_netif_ip_info_t ip = { 0 };
+ip.ip.addr = esp_ip4addr_aton("192.168.12.1");
+ip.netmask.addr = esp_ip4addr_aton("255.255.255.0");
+esp_netif_set_ip_info(netif, &ip);
+```
+
+---
+
+### `mmhalow_relay_enable`
+
+```c
+esp_err_t mmhalow_relay_enable(const struct mmwlan_relay_args *args);
+```
+
+Brings the interface up as a node of an S1G relay network. Wraps `mmwlan_relay_enable()`. Requires `CONFIG_HALOW_RELAY_MODE`, which depends on `CONFIG_HALOW_AP_MODE`.
+
+> **ALPHA:** The S1G Relay API in `mmwlan.h` is an alpha API that is under development. It is not intended for production use, and it may be removed or changed incompatibly in a future release.
+
+`args` selects one of three roles. Initialise it with `MMWLAN_RELAY_ARGS_INIT`. See `struct mmwlan_relay_args` in `mmwlan.h`.
+
+| Role | Fields to set | Netif link is up while |
+|------|---------------|------------------------|
+| Root | `root_ap_args` (a `struct mmwlan_ap_args`, as for `mmhalow_wifi_start()`) | the root AP is up |
+| Repeater | `relay_sta_args` and `relay_ap_args` | the relay STA is connected and its parent has a path to the root |
+| Relay STA | `relay_sta_args` | the relay STA is connected and its parent has a path to the root |
+
+- `sta_status_cb` (non-root roles) is passed to morselib unchanged.
+- A repeater's relay AP copies the SSID, security and passphrase of the relay STA. It uses the channel of the network that the STA joins. If `relay_ap_args.bssid` is zero, the BSSID is the device MAC address with the locally administered bit flipped.
+- STA mode and AP mode (`mmhalow_connect()`, `mmhalow_wifi_start()`) must not be active. The configuration stored by `mmhalow_set_config()` is not used.
+- Relay status changes (role, depth) can be observed with `mmwlan_register_relay_status_cb()` and `mmwlan_relay_get_status()`. Repeaters can be added or removed at runtime with `mmwlan_relay_ap_enable()` / `mmwlan_relay_ap_disable()`.
+- While relay mode is enabled the netif link is driven by morselib's VIF state callbacks (`mmwlan_register_vif_state_cb()`). Do not register your own VIF state callback, because there is only one slot per VIF.
+
+**Returns:**  
+`ESP_OK` on success.  
+`ESP_ERR_NOT_SUPPORTED` if `CONFIG_HALOW_RELAY_MODE` is disabled.  
+`ESP_ERR_INVALID_ARG` if `args` is invalid (for example, both `root_ap_args` and `relay_sta_args` are set).  
+`ESP_ERR_INVALID_STATE` if relay, STA or AP mode is already active.  
+Another `esp_err_t` on other failures. The `mmwlan_status` is logged.
+
+---
+
+### `mmhalow_relay_disable`
+
+```c
+esp_err_t mmhalow_relay_disable(void);
+```
+
+Leaves the relay network and tears down the relay STA and AP interfaces. Wraps `mmwlan_relay_disable()`. The netif link goes down, and STA link reporting returns to normal.
+
+**Returns:**  
+`ESP_OK` on success.  
+`ESP_ERR_NOT_SUPPORTED` if `CONFIG_HALOW_RELAY_MODE` is disabled.
+
+---
+
 ### `mmhalow_print_version_info`
 
 ```c

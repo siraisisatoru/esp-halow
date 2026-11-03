@@ -1,0 +1,75 @@
+# Copyright 2026 siraisisatoru
+#
+# SPDX-License-Identifier: Apache-2.0
+
+menu "HaLow relay_root Example Configuration"
+
+config WIFI_SSID
+	string "Wi-Fi SSID"
+	default "MorseMicro"
+	help
+		SSID of the relay network. Repeaters advertise the SSID their relay STA connected to,
+		so every node of the network uses this value. The default matches the mm-iot-sdk
+		relay_mode application.
+
+config WIFI_PSK
+	string "Wi-Fi Password"
+	default "12345678"
+	help
+		SAE passphrase of the relay network. Leave empty for an open network.
+
+config S1G_CHANNEL
+    int "S1G Channel"
+    default 38 if HALOW_COUNTRY_CODE = "AU" && WIFI_MORSE_AU_CHANNELISATION_2020
+    default 37 if HALOW_COUNTRY_CODE = "AU"
+    default 44
+    help
+        S1G channel number for the root AP. Together with S1G_OPCLASS this must match an entry
+        in the regulatory database for HALOW_COUNTRY_CODE. Repeaters follow the channel of
+        the AP they connect to. The defaults select a 2 MHz channel at 921 MHz (2020) or
+        920.5 MHz (2024/REVMF) for AU, otherwise the SDK's 8 MHz US channel.
+
+config S1G_OPCLASS
+    int "S1G Op-Class"
+    default 69 if HALOW_COUNTRY_CODE = "AU" && WIFI_MORSE_AU_CHANNELISATION_2020
+    default 51 if HALOW_COUNTRY_CODE = "AU"
+    default 71
+    help
+        Global operating class matching S1G_CHANNEL.
+
+config RELAY_ROOT_MAX_STAS
+    int "Maximum directly associated stations"
+    range 1 20
+    default 4
+    help
+        Maximum number of stations (repeaters or plain stations) that can associate with the
+        root AP directly. Nodes behind a repeater do not count against this limit.
+
+config RELAY_ROOT_FORWARDING_TABLE_SIZE
+    int "Relay forwarding table size"
+    range 0 1024
+    default 0
+    help
+        Number of entries in the relay forwarding table. It needs one entry per node that
+        is reachable through a repeater. 0 selects the SDK default (64).
+
+config RELAY_ROOT_IP_ADDR
+    string "Root static IPv4 address"
+    default "192.168.12.1"
+    help
+        The root has no DHCP server, so it uses this static address and other nodes need
+        static addresses in the same subnet.
+
+config RELAY_ROOT_NETMASK
+    string "Root IPv4 netmask"
+    default "255.255.255.0"
+
+config RELAY_ROOT_UDP_ECHO_PORT
+    int "UDP echo port"
+    range 0 65535
+    default 12345
+    help
+        UDP port on which the root echoes datagrams back to the sender, for end-to-end tests
+        through the relay network. 0 disables the echo server.
+
+endmenu

@@ -108,11 +108,30 @@ if(CONFIG_HALOW_AP_MODE)
     )
 endif()
 
+# S1G Relay (framework/mk/morselib.mk always builds these; s1g_action.c and reachable_address.c
+# are only used by the relay code). Without ENABLE_MMWLAN_RELAY, umac_relay.h provides inline
+# stubs and the mmwlan_relay_* API returns MMWLAN_NOT_SUPPORTED / MMWLAN_UNAVAILABLE.
+if(CONFIG_HALOW_RELAY_MODE)
+    list(APPEND SRCS
+        ${ROOT_DIR}/src/umac/frames/s1g_action.c
+        ${ROOT_DIR}/src/umac/ies/reachable_address.c
+        ${ROOT_DIR}/src/umac/relay/address_updates.c
+        ${ROOT_DIR}/src/umac/relay/umac_relay.c
+        ${ROOT_DIR}/src/umac/relay/umac_relay_table.c
+    )
+endif()
+
 add_library(libmorse STATIC ${SRCS} ${INC})
 target_include_directories(libmorse PUBLIC ${INC})
 
 if(NOT CONFIG_HALOW_AP_MODE)
     target_compile_definitions(libmorse PUBLIC MMWLAN_AP_DISABLED=1)
+endif()
+
+# Only morselib's own sources (umac/relay/umac_relay.h and its users) test ENABLE_MMWLAN_RELAY;
+# no public header does, so it stays private to libmorse.
+if(CONFIG_HALOW_RELAY_MODE)
+    target_compile_definitions(libmorse PRIVATE ENABLE_MMWLAN_RELAY=1)
 endif()
 
 add_dependencies(libmorse mmhostap)
