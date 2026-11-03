@@ -22,6 +22,8 @@ set(SRCS
     ${ROOT_DIR}/src/common/ptksa_cache.c
     ${ROOT_DIR}/src/common/sae.c
     ${ROOT_DIR}/src/common/wpa_common.c
+    ${ROOT_DIR}/src/crypto/aes-ctr.c
+    ${ROOT_DIR}/src/crypto/aes-siv.c
     ${ROOT_DIR}/src/crypto/aes-unwrap.c
     ${ROOT_DIR}/src/crypto/dh_groups.c
     ${ROOT_DIR}/src/crypto/sha256-kdf.c
@@ -59,9 +61,14 @@ set(SRCS
     ${ROOT_DIR}/wpa_supplicant/wpas_glue.c
     ${ROOT_DIR}/wpa_supplicant/bssid_ignore.c
     ${ROOT_DIR}/wpa_supplicant/wnm_sta.c
-    ${ROOT_DIR}/crypto_mbedtls_mm.c
     ${ROOT_DIR}/morse_stubs.c
 )
+
+# The SDK's crypto glue (crypto_mbedtls_mm.c) is not built here: it targets mbedTLS 2.x/3.x.
+# The shims component compiles an mbedTLS 4 / PSA port of it instead
+# (components/shims/crypto_mbedtls_mm.c). That copy stays outside libmorse, as in the SDK's
+# prebuilt-library builds, and exports the protected mmint_* names that hostap calls through
+# hostap_morse_common.h.
 
 if(CONFIG_HALOW_AP_MODE)
     list(APPEND SRCS

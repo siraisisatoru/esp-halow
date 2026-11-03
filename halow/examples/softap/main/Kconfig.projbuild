@@ -14,8 +14,20 @@ config WIFI_PSK
 
 config S1G_CHANNEL
     int "S1G Channel"
+    default 38 if HALOW_COUNTRY_CODE = "AU" && WIFI_MORSE_AU_CHANNELISATION_2020
+    default 37 if HALOW_COUNTRY_CODE = "AU"
+    default 44
+    help
+        S1G channel number for the AP. Together with S1G_OPCLASS this must match an entry in the
+        regulatory database for HALOW_COUNTRY_CODE. The defaults select a 2 MHz channel at
+        921 MHz (2020) or 920.5 MHz (2024/REVMF) for AU, otherwise the SDK's 8 MHz US channel.
 
 config S1G_OPCLASS
     int "S1G Op-Class"
+    default 69 if HALOW_COUNTRY_CODE = "AU" && WIFI_MORSE_AU_CHANNELISATION_2020
+    default 51 if HALOW_COUNTRY_CODE = "AU"
+    default 71
+    help
+        Global operating class matching S1G_CHANNEL.
 
 endmenu

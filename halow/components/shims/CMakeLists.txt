@@ -48,9 +48,13 @@ target_include_directories(shims PUBLIC ${inc})
 
 target_link_libraries(shims PUBLIC
 	idf::log
-	idf::driver
-	idf::mbedtls
+	idf::esp_driver_gpio
+	idf::esp_driver_spi
+	idf::esp_hw_support
+	idf::esp_system
 	idf::esp_timer
+	idf::freertos
+	idf::mbedtls
 )
 
 target_link_libraries(shims PUBLIC

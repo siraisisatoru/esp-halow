@@ -11,6 +11,19 @@ set(reqs
 	esp_wifi
 )
 
+# Components the shims and SDK libraries below link against directly. Listing them here keeps them
+# in the build when a project trims its component list.
+set(priv_reqs
+	esp_driver_gpio
+	esp_driver_spi
+	esp_hw_support
+	esp_system
+	esp_timer
+	freertos
+	log
+	mbedtls
+)
+
 idf_component_register(
 	INCLUDE_DIRS
 	${inc}
@@ -18,6 +31,8 @@ idf_component_register(
 	${src}
 	REQUIRES
 	${reqs}
+	PRIV_REQUIRES
+	${priv_reqs}
 )
 
 add_subdirectory(components)

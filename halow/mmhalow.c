@@ -269,7 +269,6 @@ esp_err_t mmhalow_set_config(wifi_interface_t interface, mmhalow_wifi_config_t *
         case WIFI_IF_AP:
             set_config_ap(&conf->ap);
             break;
-        case WIFI_IF_NAN:
         default:
             return ESP_ERR_NOT_SUPPORTED;
     }
@@ -301,7 +300,6 @@ esp_err_t mmhalow_get_config(wifi_interface_t interface, mmhalow_wifi_config_t *
             get_config_sta(&conf->sta);
             break;
         case WIFI_IF_AP:
-        case WIFI_IF_NAN:
         default:
             return ESP_ERR_NOT_SUPPORTED;
     }

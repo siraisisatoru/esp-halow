@@ -5,7 +5,7 @@ description: Morse Micro HaLow WLAN component for esp32
 version: "2.11.2-esp32-2"
 license: "Apache-2.0"
 dependencies:
-  idf: ">=5.4.4,<6.0"
+  idf: ">=6.0"
 url: "https://github.com/morsemicro/"
 repository: "https://github.com/MorseMicro/esp-halow.git"
 repository-info:
