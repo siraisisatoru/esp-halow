@@ -27,6 +27,18 @@ void mmhal_init(void)
 
     gpio_set_level(CONFIG_MM_RESET_N, 0);
 
+    /* A software restart (for example after a panic) resets the CPU but not the GPIO interrupt
+     * configuration, and the transceiver held in reset can leave its SPI IRQ line low. The pin
+     * may still be set up as a level interrupt from before the restart, which would fire
+     * continuously, with no handler, as soon as the ISR service below enables GPIO interrupts.
+     * Disable the transceiver's interrupt pins first; the HAL enables them when it is ready. */
+    gpio_intr_disable(CONFIG_MM_SPI_IRQ);
+    gpio_set_intr_type(CONFIG_MM_SPI_IRQ, GPIO_INTR_DISABLE);
+#ifdef CONFIG_HALOW_PS_MODE
+    gpio_intr_disable(CONFIG_MM_BUSY);
+    gpio_set_intr_type(CONFIG_MM_BUSY, GPIO_INTR_DISABLE);
+#endif /* CONFIG_HALOW_PS_MODE */
+
     /* Initialise the gpio ISR handler service. This allows per-pin GPIO interrupt handlers and is
      * what is used to register all the wlan related interrupt. */
     gpio_install_isr_service(0);

@@ -55,9 +55,10 @@ static void halow_rx(struct mmpkt *rxpkt, void *arg)
 
     if (ret != ESP_OK)
     {
-        ESP_LOGE(TAG, "esp_netif_receive failed - %d", ret);
-        mmpkt_close(&pktview);
-        mmpkt_release(rxpkt);
+        /* esp_netif has already returned the buffer through mmhalow_free() on every error path
+         * (netif down, no pbuf, tcpip input queue full), so it must not be released here. Doing
+         * so freed the packet twice under heavy receive load. */
+        ESP_LOGD(TAG, "esp_netif_receive failed - %d", ret);
     }
 }
 
