@@ -18,6 +18,11 @@
 #include "esp_mac.h"
 #include "driver/spi_master.h"
 #include "driver/spi_common.h"
+#ifdef CONFIG_MM_SPI_FAST_PATH
+#include "freertos/FreeRTOS.h"
+#include "hal/spi_ll.h"
+#include "soc/soc_caps.h"
+#endif
 
 static const char *TAG = "MMHaLow";
 
@@ -39,6 +44,14 @@ static mmhal_irq_handler_t busy_irq_handler = NULL;
 #endif /* CONFIG_HALOW_PS_MODE */
 
 static spi_device_handle_t spi_handle;
+
+#ifdef CONFIG_MM_SPI_FAST_PATH
+/** SPI peripheral registers, driven directly once the driver has configured bus and device. */
+static spi_dev_t *spi_hw;
+
+/** Bytes per hardware transfer in CPU mode (size of the SPI data buffer registers). */
+#define FAST_CHUNK_LEN SOC_SPI_MAXIMUM_BUFFER_SIZE
+#endif
 
 static void wlan_hal_gpio_init(void)
 {
@@ -88,16 +101,21 @@ static void wlan_hal_spi_init(void)
         .max_transfer_sz = 0,
         .flags = SPICOMMON_BUSFLAG_MASTER,
     };
+#ifdef CONFIG_MM_SPI_FAST_PATH
+    /* Every transfer goes through the data buffer registers (CPU mode), never DMA. */
+    ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_DISABLED);
+#else
     ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
+#endif
     if (ret != ESP_OK)
     {
         ESP_LOGE(TAG, "spi_bus_initialize failed\n");
     }
 
-    /* Selected the highest available SPI clock speed that is still below the MM6108's maximum of
-     * 50MHz */
+    /* The MM6108 allows up to 50 MHz; 40 MHz (the default) is the highest exact ESP SPI clock below
+     * that. */
     spi_device_interface_config_t dev_cfg = {
-        .clock_speed_hz = SPI_MASTER_FREQ_40M,
+        .clock_speed_hz = CONFIG_MM_SPI_CLOCK_MHZ * 1000 * 1000,
         .mode = 0,
         .spics_io_num = -1,
         .queue_size = 1,
@@ -114,10 +132,41 @@ static void wlan_hal_spi_init(void)
     int actual_freq_khz = 0;
     spi_device_get_actual_freq(spi_handle, &actual_freq_khz);
     ESP_LOGD(TAG, "Actual SPI CLK %dkHz\n", actual_freq_khz);
+
+#ifdef CONFIG_MM_SPI_FAST_PATH
+    /* Nothing else uses this bus: keep it, so the driver never reconfigures the peripheral while
+     * its registers are driven directly. One driver transfer (an idle-high byte, sent while the
+     * chip is still held in reset) loads the device configuration (clock, mode, bit order, no
+     * command/address/dummy phases) into the peripheral; the fast path only changes the data
+     * length and data registers after that. */
+    ret = spi_device_acquire_bus(spi_handle, portMAX_DELAY);
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(TAG, "spi_device_acquire_bus failed\n");
+    }
+    uint8_t idle = 0xff;
+    spi_transaction_t setup = {
+        .length = 8,
+        .tx_buffer = &idle,
+    };
+    ret = spi_device_polling_transmit(spi_handle, &setup);
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(TAG, "SPI set-up transfer failed\n");
+    }
+    spi_hw = SPI_LL_GET_HW(SPI2_HOST);
+    spi_ll_dma_tx_enable(spi_hw, false);
+    spi_ll_dma_rx_enable(spi_hw, false);
+    ESP_LOGI(TAG, "SPI fast path, %d kHz", actual_freq_khz);
+#endif
 }
 
 static void wlan_hal_spi_deinit(void)
 {
+#ifdef CONFIG_MM_SPI_FAST_PATH
+    spi_device_release_bus(spi_handle);
+    spi_hw = NULL;
+#endif
     esp_err_t ret = spi_bus_remove_device(spi_handle);
     if (ret != ESP_OK)
     {
@@ -131,6 +180,53 @@ static void wlan_hal_spi_deinit(void)
     }
 }
 
+#ifdef CONFIG_MM_SPI_FAST_PATH
+/*
+ * Full-duplex transfer by writing the SPI peripheral registers directly, the same sequence the
+ * ESP-IDF SPI master driver uses for a transfer without DMA, without the per-transfer driver
+ * overhead. Buffers longer than the data registers are sent as consecutive transfers; chip select
+ * is a GPIO driven by the caller, so the chip sees one continuous transfer. Without w_data the
+ * bus is driven high (0xff), as SD-over-SPI expects while the host reads.
+ */
+static void spi_master_rw(const uint8_t *w_data, uint8_t *r_data, size_t len)
+{
+    uint32_t chunk_words[FAST_CHUNK_LEN / sizeof(uint32_t)];
+    uint8_t *chunk = (uint8_t *)chunk_words;
+
+    while (len > 0)
+    {
+        size_t n = (len > FAST_CHUNK_LEN) ? FAST_CHUNK_LEN : len;
+        size_t bits = n * 8;
+
+        /* spi_ll_write_buffer() copies whole words, so fill the chunk up to a word boundary. */
+        memset(chunk_words, 0xff, ((n + 3) / 4) * 4);
+        if (w_data != NULL)
+        {
+            memcpy(chunk, w_data, n);
+            w_data += n;
+        }
+
+        spi_ll_clear_int_stat(spi_hw);
+        spi_ll_set_mosi_bitlen(spi_hw, bits);
+        spi_ll_set_miso_bitlen(spi_hw, bits);
+        spi_ll_enable_mosi(spi_hw, 1);
+        spi_ll_enable_miso(spi_hw, 1);
+        spi_ll_write_buffer(spi_hw, chunk, bits);
+        spi_ll_apply_config(spi_hw);
+        spi_ll_user_start(spi_hw);
+        while (!spi_ll_usr_is_done(spi_hw))
+        {
+        }
+
+        if (r_data != NULL)
+        {
+            spi_ll_read_buffer(spi_hw, r_data, bits);
+            r_data += n;
+        }
+        len -= n;
+    }
+}
+#else
 /**
  * Minium transfer length in bytes before interrupt based transactions are used. This is because
  * there is some setup time associated with using the interrupt based method when compared to the
@@ -170,6 +266,7 @@ static void spi_master_rw(const uint8_t *w_data, uint8_t *r_data, size_t len)
         printf("SPI rw error = %x\n", err);
     }
 }
+#endif /* CONFIG_MM_SPI_FAST_PATH */
 
 void mmhal_wlan_hard_reset(void)
 {

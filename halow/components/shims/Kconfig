@@ -68,4 +68,29 @@ menu "Morse Micro Shim Configuration"
             Out of band interupt pin used to indicate that
             the MM chip has data for the host.
 
+    config MM_SPI_CLOCK_MHZ
+        int "SPI clock for MM chip (MHz)"
+        range 1 50
+        default 40
+        help
+            Requested SPI clock. The MM chip allows up to 50 MHz, but the ESP SPI clock is
+            divided from an 80 MHz source, so 40 MHz is the highest exact value; the driver
+            rounds other values to the nearest frequency it can produce.
+
+    config MM_SPI_FAST_PATH
+        bool "Drive the SPI peripheral directly for MM chip transfers"
+        default y
+        help
+            The SDIO-over-SPI protocol makes many single-byte transfers per packet (bus ready
+            polls, tokens, CRC bytes). Through the ESP-IDF SPI master driver each of them is a
+            complete driver transaction (bus lock, DMA set-up, start, wait), which is much
+            longer than the byte itself and limits throughput.
+
+            With this option the driver only configures the bus and device once; every
+            transfer then writes the SPI data registers directly (CPU mode, up to 64 bytes per
+            hardware transfer, longer buffers in 64-byte chunks) and polls for completion, as
+            the mm-iot-sdk STM32 platforms do. Chip select is a GPIO driven by morselib, so the
+            chunking is not visible to the MM chip. Disable to use the SPI master driver for
+            every transfer.
+
 endmenu
